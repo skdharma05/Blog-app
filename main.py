@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException # StarletteHTTPException is used to handle the 404 error when the post is not found and return a custom error page instead of the default 404 page
 
+from schemas import PostCreate, PostResponse
 
 app = FastAPI()
 
@@ -20,7 +21,8 @@ posts : list[dict] = [
         "content": "FastAPI is a modern, fast (high-performance) web framework for building APIs with Python 3.7+ based on standard Python type hints.",
         "tags": ["fastapi", "python", "api"],
         "published": True,
-        "views": 150
+        "views": 150,
+        "date_posted": "March 9, 2026" 
     },
     {
         "id": 2,
@@ -29,7 +31,8 @@ posts : list[dict] = [
         "content": "Python lists and dictionaries are versatile data structures used to store collections of items. Lists are ordered, dictionaries are key-value pairs.",
         "tags": ["python", "data structures", "tutorial"],
         "published": False,
-        "views": 85
+        "views": 85,
+        "date_posted": "March 9, 2026" 
     }
 ]
 
@@ -55,17 +58,36 @@ def post_page(request: Request, post_id: int):
                 )
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found.")
 
-@app.get("/api/posts")
+@app.get("/api/posts", response_model=list[PostResponse]) # response_model is used to specify the model that will be used to validate the response data and return a JSON response with the validated data. In this case, it will return a list of PostResponse models.
 def get_posts():
     return posts
 
-@app.get("/api/posts/{post_id}")
+# This endpoint is used to create a new post. It takes a PostCreate model as input, which is used to validate the input data when creating a new post. The new post is then added to the posts list and returned as a PostResponse model with the generated id and date_posted fields.
+@app.post(
+        "/api/posts",
+        response_model=PostResponse,
+        status_code=status.HTTP_201_CREATED,
+        ) # response_model is used to specify the model that will be used to validate the response data and return a JSON response with the validated data. In this case, it will return a PostResponse model. status_code is used to specify the status code of the response when a new post is created.
+def create_post(post: PostCreate):
+    new_id = max(p['id'] for p in posts) + 1 if posts else 1
+    new_post = {
+        "id": new_id,
+        "author": post.author,
+        "title": post.title,
+        "content": post.content,
+        "date_posted": "March 10, 2026",
+        }
+    posts.append(new_post)
+    return new_post
+
+
+@app.get("/api/posts/{post_id}", response_model=PostResponse) # response_model is used to specify the model that will be used to validate the response data and return a JSON response with the validated data. In this case, it will return a PostResponse model.
 def get_post(post_id: int):
     for post in posts:
         if post["id"] == post_id:
             return post
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found.")
-
+       
 
 # This exception handler will catch all the HTTPException raised in the application and return a custom error message when the post is not found. If the request is made to an API endpoint, it will return a JSON response with the error message. If the request is made to a non-API endpoint, it will return an HTML response with a custom error page.
 @app.exception_handler(StarletteHTTPException)
@@ -113,3 +135,4 @@ def validation_exception_handler(request: Request, exception: RequestValidationE
         },
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
     )
+
