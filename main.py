@@ -5,36 +5,25 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException # StarletteHTTPException is used to handle the 404 error when the post is not found and return a custom error page instead of the default 404 page
 
-from schemas import PostCreate, PostResponse
+
+
+from typing import Annotated
+from fastapi import Depends # Depends is used to declare a dependency in the API endpoint, which allows us to inject a database session into the endpoint function. It is used in the get_db function in database.py to create a new session and yield it for use in the API endpoints.
+from sqlalchemy.orm import Session # Session is used to create a database session for querying the database and performing CRUD operations on the database. It is used in the get_db function in database.py to create a new session and yield it for use in the API endpoints.
+from sqlalchemy import select # its new in SQLAlchemy 2.0 and is used to create a select statement for querying the database. eg db.query() - older version of SQLAlchemy, select() - newer version of SQLAlchemy 2.0
+
+import models
+from database import get_db, engine, Base
+from schemas import PostCreate, PostResponse, UserCreate, UserResponse
+
+Base.metadata.create_all(bind=engine) # This line creates the database tables based on the models defined in the models.py file. It uses the metadata of the Base class to create the tables in the database. The bind parameter is used to specify the database engine that will be used to create the tables. In this case, it uses the engine defined in database.py, which is a SQLite database.
 
 app = FastAPI()
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/media", StaticFiles(directory="media"), name="media")
 
 templates = Jinja2Templates(directory="templates")
-
-posts : list[dict] = [
-    {
-        "id": 1,
-        "title": "Introduction to FastAPI",
-        "author": "Alice",
-        "content": "FastAPI is a modern, fast (high-performance) web framework for building APIs with Python 3.7+ based on standard Python type hints.",
-        "tags": ["fastapi", "python", "api"],
-        "published": True,
-        "views": 150,
-        "date_posted": "March 9, 2026" 
-    },
-    {
-        "id": 2,
-        "title": "Understanding Python Lists and Dictionaries",
-        "author": "Bob",
-        "content": "Python lists and dictionaries are versatile data structures used to store collections of items. Lists are ordered, dictionaries are key-value pairs.",
-        "tags": ["python", "data structures", "tutorial"],
-        "published": False,
-        "views": 85,
-        "date_posted": "March 9, 2026" 
-    }
-]
 
 
 @app.get("/",include_in_schema=False , name='home')
@@ -58,9 +47,56 @@ def post_page(request: Request, post_id: int):
                 )
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found.")
 
+
+@app.post(
+        "/api/users",
+        response_model=UserResponse,
+        status_code=status.HTTP_201_CREATED,
+        )
+def create_user(user: UserCreate , db: Annotated[Session, Depends(get_db)]):
+    # This block of code executes a SQL query to check if a user with the same username already exists in the database.
+    #  It uses the select function from SQLAlchemy to create a select statement that queries the User table for a user with the same username as the one being created.
+    #  The result of the query is stored in the result variable, and existing_user is set to the first result of the query, which will be the existing user if it exists, or None if it doesn't exist.
+    result = db.execute( 
+        select(models.User).where(models.User.username == user.username), 
+    )
+    existing_user = result.scalars().first() # scalars() is used to extract the scalar values from the result of the query, which in this case is the User object. first() is used to get the first result of the query, which will be the existing user if it exists, or None if it doesn't exist.
+    
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already exists. Please choose a different username.",
+        )
+    
+    # This block of code executes a SQL query to check if a user with the same email already exists in the database.
+    #  It uses the select function from SQLAlchemy to create a select statement that queries the User table for a user with the same email as the one being created.
+    #  The result of the query is stored in the result variable, and existing_email is set to the first result of the query, which will be the existing user if it exists, or None if it doesn't exist.
+    result = db.execute(
+        select(models.User).where(models.User.email == user.email),
+    )
+    existing_email = result.scalars().first()
+
+    if existing_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already exists. Please choose a different email.",
+        )
+    new_user = models.User(
+        username=user.username,
+        email=user.email,
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+
+    return new_user
+
+
 @app.get("/api/posts", response_model=list[PostResponse]) # response_model is used to specify the model that will be used to validate the response data and return a JSON response with the validated data. In this case, it will return a list of PostResponse models.
 def get_posts():
     return posts
+
 
 # This endpoint is used to create a new post. It takes a PostCreate model as input, which is used to validate the input data when creating a new post. The new post is then added to the posts list and returned as a PostResponse model with the generated id and date_posted fields.
 @app.post(
